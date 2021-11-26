@@ -1,0 +1,9 @@
+{
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "golang.go",
+    "go.formatTool": "gofmt",
+    "editor.formatOnPaste": true,
+    "editor.formatOnType": true,
+    "go.autocompleteUnimportedPackages": true,
+    "go.gotoSymbol.includeImports": true
+}
