@@ -5,7 +5,6 @@ package lsof
 
 import (
 	"errors"
-	"fmt"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -26,45 +25,6 @@ type Process struct {
 	PortNumber int
 }
 
-// FileType defines the type of file in use by a process
-type FileType string
-
-const (
-	FileTypeUnknown FileType = ""
-	FileTypeDir     FileType = "DIR"
-	FileTypeFile    FileType = "REG"
-)
-
-// FileDescriptor defines a file in use by a process
-type FileDescriptor struct {
-	FD   string
-	Type FileType
-	Name string
-}
-
-// ExecError is an error running lsof
-type ExecError struct {
-	command string
-	args    []string
-	output  string
-	err     error
-}
-
-func (e ExecError) Error() string {
-	return fmt.Sprintf("Error running %s %s: %s (%s)", e.command, e.args, e.err, e.output)
-}
-
-func fileTypeFromString(s string) FileType {
-	switch s {
-	case "DIR":
-		return FileTypeDir
-	case "REG":
-		return FileTypeFile
-	default:
-		return FileTypeUnknown
-	}
-}
-
 func (p *Process) fillField(s string) error {
 	if s == "" {
 		return errors.New("empty field")
@@ -81,47 +41,20 @@ func (p *Process) fillField(s string) error {
 	return nil
 }
 
-func (f *FileDescriptor) fillField(s string) error {
-	// See Output for Other Programs at http://linux.die.net/man/8/lsof
-	key := s[0]
-	value := s[1:]
-	switch key {
-	case 't':
-		f.Type = fileTypeFromString(value)
-	case 'f':
-		f.FD = value
-	case 'n':
-		f.Name = value
-	default:
-		// Skip unhandled field
+func parseAppendProcessLines(processes []Process, linesChunk []string) ([]Process, error) {
+	if len(linesChunk) == 0 {
+		return processes, nil
 	}
 
-	return nil
-}
-
-func parseProcessLines(lines []string) (Process, error) {
-	p := Process{}
-	for _, line := range lines {
+	for _, line := range linesChunk {
+		p := Process{}
 		err := p.fillField(line)
 		if err != nil {
-			return p, err
+			continue
 		}
+		processes = append(processes, p)
 	}
-	return p, nil
-}
-
-func parseAppendProcessLines(processes []Process, linesChunk []string) ([]Process, []string, error) {
-	if len(linesChunk) == 0 {
-		return processes, linesChunk, nil
-	}
-	process, err := parseProcessLines(linesChunk)
-	if err != nil {
-		return processes, linesChunk, err
-	}
-	processesAfter := processes
-	processesAfter = append(processesAfter, process)
-	linesChunkAfter := []string{}
-	return processesAfter, linesChunkAfter, nil
+	return processes, nil
 }
 
 func parse(s string) ([]Process, error) {
@@ -138,16 +71,13 @@ func parse(s string) ([]Process, error) {
 			continue
 		}
 
-		// End of process, let's parse those lines
-		if strings.HasPrefix(line, "p") && len(linesChunk) > 0 {
-			processes, linesChunk, err = parseAppendProcessLines(processes, linesChunk)
-			if err != nil {
-				return nil, err
-			}
+		if !strings.Contains(line, "LISTEN") {
+			continue
 		}
+
 		linesChunk = append(linesChunk, line)
 	}
-	processes, _, err = parseAppendProcessLines(processes, linesChunk)
+	processes, err = parseAppendProcessLines(processes, linesChunk)
 	if err != nil {
 		return nil, err
 	}
@@ -159,10 +89,10 @@ func Run() ([]Process, error) {
 	// install it in /usr/sbin, even though regular users can use it too. FreeBSD,
 	// on the other hand, puts it in /usr/local/sbin. So do not specify absolute path.
 	command := "lsof"
-	args := append([]string{"-i", "-n", "-P", "-sTCP:LISTEN"})
+	args := append([]string{"-i", "-n", "-P"})
 	output, err := exec.Command(command, args...).Output()
 	if err != nil {
-		return nil, ExecError{command: command, args: args, output: string(output), err: err}
+		return nil, err
 	}
 	return parse(string(output))
 }
